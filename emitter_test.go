@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/garyburd/redigo/redis"
+	"gopkg.in/redis.v5"
 )
 
 func TestEmitter_Emit(t *testing.T) {
@@ -17,16 +17,19 @@ func TestEmitter_Emit(t *testing.T) {
 		t.Error("emitter is nil")
 	}
 
-	conn, _ := redis.Dial("tcp", "localhost:6379")
+	conn := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    "localhost:6379",
+	})
 	defer conn.Close()
-	psc := redis.PubSubConn{Conn: conn}
 
-	psc.Subscribe("socket.io#/#")
+	psc, _ := conn.Subscribe("socket.io#/#")
 	emitter.Emit("test", "test emitter")
 	for {
-		switch v := psc.Receive().(type) {
-		case redis.Message:
-			isContain := strings.Contains(string(v.Data), "test emitter")
+		v, _ := psc.Receive()
+		switch msg := v.(type) {
+		case *redis.Message:
+			isContain := strings.Contains(msg.Payload, "test emitter")
 			if !isContain {
 				t.Error("received msg not right")
 				return
@@ -46,17 +49,20 @@ func TestEmitter_In(t *testing.T) {
 		t.Error("emitter is nil")
 	}
 
-	conn, _ := redis.Dial("tcp", "localhost:6379")
+	conn := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    "localhost:6379",
+	})
 	defer conn.Close()
-	psc := redis.PubSubConn{Conn: conn}
 
 	room := "test_room"
-	psc.Subscribe(fmt.Sprintf("%s%s#", emitter.Channel, room))
+	psc, _ := conn.Subscribe(fmt.Sprintf("%s%s#", emitter.Channel, room))
 	emitter.In(room).Emit("test", "test room")
 	for {
-		switch v := psc.Receive().(type) {
-		case redis.Message:
-			isContain := strings.Contains(string(v.Data), "test room")
+		v, _ := psc.Receive()
+		switch msg := v.(type) {
+		case *redis.Message:
+			isContain := strings.Contains(msg.Payload, "test room")
 			if !isContain {
 				t.Error("received msg not right")
 				return
@@ -76,17 +82,20 @@ func TestEmitter_Of(t *testing.T) {
 		t.Error("emitter is nil")
 	}
 
-	conn, _ := redis.Dial("tcp", "localhost:6379")
+	conn := redis.NewClient(&redis.Options{
+		Network: "tcp",
+		Addr:    "localhost:6379",
+	})
 	defer conn.Close()
-	psc := redis.PubSubConn{Conn: conn}
 
 	nsp := "test_nsp"
-	psc.Subscribe(fmt.Sprintf("%s#%s#", emitter.Prefix, nsp))
+	psc, _ := conn.Subscribe(fmt.Sprintf("%s#%s#", emitter.Prefix, nsp))
 	emitter.Of(nsp).Emit("test", "test nsp")
 	for {
-		switch v := psc.Receive().(type) {
-		case redis.Message:
-			isContain := strings.Contains(string(v.Data), "test nsp")
+		v, _ := psc.Receive()
+		switch msg := v.(type) {
+		case *redis.Message:
+			isContain := strings.Contains(msg.Payload, "test nsp")
 			if !isContain {
 				t.Error("received msg not right")
 				return

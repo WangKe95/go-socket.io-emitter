@@ -3,16 +3,17 @@ package socketio_emitter
 import (
 	"bytes"
 	"fmt"
+	"strings"
 
-	"github.com/garyburd/redigo/redis"
 	"github.com/vmihailenco/msgpack"
+	"gopkg.in/redis.v5"
 )
 
 const EVENT = 2
 const uid = "emitter"
 
 type Emitter struct {
-	Redis   redis.Conn
+	Redis   *redis.Client
 	Prefix  string
 	Nsp     string
 	Channel string
@@ -22,17 +23,17 @@ type Emitter struct {
 
 type NewEmitterOpts struct {
 	// redis host
-	Host     string
+	Host string
 	// redis port
-	Port     int
+	Port int
 	// redis addr
-	Addr     string
+	Addr string
 	// redis connection protocol
 	Protocol string
 	// prefix of pub/sub key
-	Key      string
+	Key string
 	// namespace
-	Nsp      string
+	Nsp string
 }
 
 // Emitter constructor
@@ -40,31 +41,32 @@ func NewEmitter(opts *NewEmitterOpts) (*Emitter, error) {
 	var addr string
 	if opts.Addr != "" {
 		addr = opts.Addr
+		if !strings.HasPrefix(addr, "redis://") {
+			addr = "redis://" + addr
+		}
 	} else if opts.Host != "" && opts.Port > 0 {
-		addr = fmt.Sprintf("%s:%d", opts.Host, opts.Port)
+		addr = fmt.Sprintf("redis://%s:%d", opts.Host, opts.Port)
 	} else {
-		addr = "localhost:6379"
+		addr = "redis://localhost:6379"
 	}
 
-	protocol := "tcp"
-	if opts.Protocol != "" {
-		protocol = opts.Protocol
-	}
-
-	conn, err := redis.Dial(protocol, addr)
+	config, err := redis.ParseURL(addr)
 	if err != nil {
+		fmt.Println("an error occurred when parsing redis dsn:", err)
 		return nil, err
 	}
+	client := redis.NewClient(config)
 
 	prefix := "socket.io"
 	if opts.Key != "" {
 		prefix = opts.Key
 	}
 
-	return newEmitter(conn, prefix, "/"), nil
+	emitter := newEmitter(client, prefix, "/")
+	return emitter, emitter.Redis.Ping().Err()
 }
 
-func newEmitter(redis redis.Conn, prefix string, nsp string) *Emitter {
+func newEmitter(redis *redis.Client, prefix string, nsp string) *Emitter {
 	return &Emitter{
 		Redis:   redis,
 		Prefix:  prefix,
@@ -109,7 +111,7 @@ func (emitter *Emitter) Emit(event string, data ...interface{}) (*Emitter, error
 	packet["nsp"] = emitter.Nsp
 	pack = append(pack, packet)
 
-	opts := map[string]interface{} {
+	opts := map[string]interface{}{
 		"rooms": emitter.rooms,
 		"flags": emitter.flags,
 	}
@@ -125,7 +127,7 @@ func (emitter *Emitter) Emit(event string, data ...interface{}) (*Emitter, error
 	if err != nil {
 		return nil, err
 	}
-	_, err = emitter.Redis.Do("publish", channel, buf)
+	_ = emitter.Redis.Publish(channel, buf.String())
 
 	emitter.rooms = []string{}
 	emitter.flags = make(map[string]interface{})
